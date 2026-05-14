@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool-Calling AI Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root{--bg:#08090d;--bg2:#0d1017;--bg3:#12161f;--card:#161c2a;--card2:#1b2236;--border:#222d44;--glow:#2a3a5c;--fg:#e4ecf7;--fg2:#c5d1e5;--muted:#5a7399;--accent:#f97316;--accent2:rgba(249,115,22,.1);--teal:#14b8a6;--cyan:#22d3ee;--rose:#f43f5e;--amber:#fbbf24;--purple:#a78bfa;--lime:#84cc16;--pink:#ec4899}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Space Grotesk',sans-serif;background:var(--bg);color:var(--fg);min-height:100vh;overflow:hidden}
+
+        /* ===== LAYOUT ===== */
+        .app-layout{display:grid;grid-template-columns:72px 1fr;height:100vh}
+        .sidebar{background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px;z-index:20}
+        .sidebar-btn{width:44px;height:44px;border-radius:12px;border:none;background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;transition:all .2s;position:relative}
+        .sidebar-btn:hover{background:var(--card);color:var(--fg)}
+        .sidebar-btn.active{background:var(--accent2);color:var(--accent)}
+        .sidebar-btn.active::before{content:'';position:absolute;left:-16px;top:50%;transform:translateY(-50%);width:3px;height:20px;background:var(--accent);border-radius:0 3px 3px 0}
+        .sidebar-spacer{flex:1}
+        .sidebar-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--rose));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;margin-bottom:8px}
+
+        .main-area{display:flex;flex-direction:column;overflow:hidden;position:relative}
+        .main-header{height:56px;border-bottom:1px solid var(--border);background:rgba(8,9,13,.85);backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:space-between;padding:0 24px;z-index:15;flex-shrink:0}
+        .main-header h1{font-size:15px;font-weight:700;letter-spacing:-.3px;display:flex;align-items:center;gap:8px}
+        .main-header h1 .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);animation:dotPulse 2s infinite}
+        @keyframes dotPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(20,184,166,.4)}50%{opacity:.7;box-shadow:0 0 0 6px rgba(20,184,166,0)}}
+
+        .content-grid{flex:1;display:grid;grid-template-columns:1fr 380px;overflow:hidden}
+        .chat-panel{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
+        .tools-panel{display:flex;flex-direction:column;overflow:hidden;background:var(--bg2)}
+
+        /* ===== CHAT ===== */
+        .chat-messages{flex:1;overflow-y:auto;padding:24px;display:flex;flex-direction:column;gap:20px;scroll-behavior:smooth}
+        .chat-messages::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}.chat-messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+        .msg{display:flex;gap:12px;animation:msgIn .35s ease-out}
+        @keyframes msgIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        .msg.user{flex-direction:row-reverse}
+        .msg-avatar{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+        .msg.user .msg-avatar{background:linear-gradient(135deg,var(--accent),#ea580c);color:#fff}
+        .msg.ai .msg-avatar{background:linear-gradient(135deg,var(--teal),#0d9488);color:#fff}
+        .msg-body{max-width:72%;display:flex;flex-direction:column;gap:6px}
+        .msg.user .msg-body{align-items:flex-end}
+        .msg-bubble{padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.65;word-break:break-word}
+        .msg.user .msg-bubble{background:var(--accent);color:#fff;border-bottom-right-radius:4px}
+        .msg.ai .msg-bubble{background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px;color:var(--fg2)}
+        .msg-time{font-size:10px;color:var(--muted);padding:0 4px}
+        .msg-meta{display:flex;align-items:center;gap:8px}
+
+        /* Tool call card inside chat */
+        .tool-call-card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:4px;animation:slideUp .3s ease-out}
+        .tool-call-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+        .tool-call-header .tc-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px}
+        .tool-call-header .tc-name{font-size:12px;font-weight:700;flex:1}
+        .tool-call-header .tc-status{font-size:10px;font-weight:600;padding:2px 8px;border-radius:6px}
+        .tc-args{font-family:'JetBrains Mono',monospace;font-size:11px;background:var(--bg3);padding:8px 10px;border-radius:8px;margin-bottom:8px;color:var(--muted);line-height:1.6}
+        .tc-result{font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(20,184,166,.06);border:1px solid rgba(20,184,166,.15);padding:8px 10px;border-radius:8px;color:var(--fg2);line-height:1.6;max-height:200px;overflow-y:auto}
+        .tc-error{font-family:'JetBrains Mono',monospace;font-size:11px;background:rgba(244,63,94,.06);border:1px solid rgba(244,63,94,.15);padding:8px 10px;border-radius:8px;color:var(--rose);line-height:1.6}
+        @keyframes slideUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+        /* Typing indicator */
+        .typing-indicator{display:flex;gap:4px;padding:4px 0}
+        .typing-indicator span{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:typingBounce .6s ease-in-out infinite}
+        .typing-indicator span:nth-child(2){animation-delay:.1s}
+        .typing-indicator span:nth-child(3){animation-delay:.2s}
+        @keyframes typingBounce{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-6px);opacity:1}}
+
+        /* ===== INPUT AREA ===== */
+        .chat-input-area{padding:16px 24px 20px;border-top:1px solid var(--border);background:var(--bg)}
+        .input-wrapper{display:flex;align-items:flex-end;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:8px 8px 8px 18px;transition:border-color .2s,box-shadow .2s}
+        .input-wrapper:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent2)}
+        .chat-input{flex:1;background:transparent;border:none;color:var(--fg);font-family:'Space Grotesk',sans-serif;font-size:14px;resize:none;outline:none;max-height:120px;line-height:1.5}
+        .chat-input::placeholder{color:var(--muted)}
+        .send-btn{width:38px;height:38px;border-radius:10px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .2s;flex-shrink:0}
+        .send-btn.ready{background:var(--accent);color:#fff}
+        .send-btn.ready:hover{background:#ea580c;transform:scale(1.05)}
+        .send-btn.disabled{background:var(--card2);color:var(--muted);cursor:not-allowed}
+        .input-hints{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;padding:0 4px}
+        .hint-chip{font-size:10px;padding:4px 10px;border-radius:8px;background:var(--card);border:1px solid var(--border);color:var(--muted);cursor:pointer;transition:all .2s;white-space:nowrap}
+        .hint-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent2)}
+
+        /* ===== TOOLS PANEL ===== */
+        .tools-panel-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+        .tools-panel-header h2{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}
+        .panel-tabs{display:flex;gap:2px;background:var(--bg3);border-radius:8px;padding:2px}
+        .panel-tab{padding:5px 12px;border-radius:6px;border:none;background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all .2s}
+        .panel-tab.active{background:var(--card2);color:var(--fg)}
+        .panel-tab:hover{color:var(--fg)}
+
+        .panel-content{flex:1;overflow-y:auto;padding:16px 20px}
+        .panel-content::-webkit-scrollbar{width:4px}.panel-content::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+        /* Tool registry cards */
+        .tool-reg-card{padding:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:all .2s;cursor:pointer}
+        .tool-reg-card:hover{border-color:var(--glow);transform:translateX(2px)}
+        .tool-reg-card:last-child{margin-bottom:0}
+        .tool-reg-top{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+        .tool-reg-icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+        .tool-reg-info{flex:1;min-width:0}
+        .tool-reg-name{font-size:12px;font-weight:700}
+        .tool-reg-desc{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .tool-reg-badge{font-size:9px;padding:2px 7px;border-radius:5px;font-weight:600}
+        .tool-reg-params{display:flex;gap:3px;flex-wrap:wrap}
+        .tool-reg-params span{font-size:8px;padding:1px 5px;border-radius:3px;font-weight:600}
+
+        /* JSON viewer */
+        .json-viewer{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.75;padding:14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow-x:auto;max-height:100%;white-space:pre-wrap;word-break:break-all}
+        .jk{color:var(--cyan)}.js{color:var(--lime)}.jn{color:var(--amber)}.jb{color:var(--purple)}.jl{color:var(--muted)}.je{color:var(--rose)}
+
+        /* Stats bar */
+        .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+        .stat-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+        .stat-label{font-size:8px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:4px}
+        .stat-value{font-size:16px;font-weight:800;letter-spacing:-.5px;margin-top:2px}
+
+        /* Error display */
+        .error-display{padding:12px;background:rgba(244,63,94,.05);border:1px solid rgba(244,63,94,.18);border-radius:10px;margin-bottom:10px;animation:slideUp .3s ease-out}
+        .error-display:last-child{margin-bottom:0}
+        .error-display .ed-code{color:var(--rose);font-size:11px;font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:4px}
+        .error-display .ed-msg{font-size:11px;color:var(--fg2);opacity:.8;line-height:1.5}
+        .error-display .ed-suggest{margin-top:6px;padding-top:6px;border-top:1px solid rgba(244,63,94,.1)}
+        .error-display .ed-suggest div{font-size:10px;color:var(--amber);padding-left:10px;margin-bottom:2px;position:relative}
+        .error-display .ed-suggest div::before{content:'\2192';position:absolute;left:0;color:var(--amber)}
+
+        /* Toast */
+        .toast-container{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:6px}
+        .toast{padding:10px 16px;border-radius:10px;background:var(--card2);border:1px solid var(--border);font-size:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);animation:toastIn .3s ease-out;display:flex;align-items:center;gap:8px}
+        .toast.out{animation:toastOut .3s ease-in forwards}
+        @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes toastOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(20px)}}
+
+        /* Welcome screen */
+        .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;text-align:center;padding:40px;gap:16px}
+        .welcome-icon{width:72px;height:72px;border-radius:20px;background:var(--accent2);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--accent);margin-bottom:8px}
+        .welcome h2{font-size:22px;font-weight:800;letter-spacing:-.5px}
+        .welcome p{font-size:13px;color:var(--muted);max-width:420px;line-height:1.6}
+        .welcome-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;max-width:500px;width:100%}
+        .welcome-card{padding:14px;background:var(--card);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all .2s;text-align:left}
+        .welcome-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+        .welcome-card .wc-icon{font-size:18px;margin-bottom:8px}
+        .welcome-card .wc-title{font-size:12px;font-weight:700;margin-bottom:3px}
+        .welcome-card .wc-desc{font-size:10px;color:var(--muted);line-height:1.4}
+
+        /* Background effects */
+        .bg-glow{position:fixed;pointer-events:none;z-index:0}
+        .bg-glow-1{top:-20%;left:10%;width:50%;height:50%;background:radial-gradient(ellipse,rgba(249,115,22,.03)0%,transparent 70%);animation:bgDrift 28s ease-in-out infinite}
+        .bg-glow-2{bottom:-15%;right:5%;width:40%;height:45%;background:radial-gradient(ellipse,rgba(20,184,166,.02)0%,transparent 70%);animation:bgDrift 35s ease-in-out infinite reverse}
+        @keyframes bgDrift{0%,100%{transform:translate(0,0) scale(1)}40%{transform:translate(30px,-20px) scale(1.04)}80%{transform:translate(-20px,25px) scale(.96)}}
+
+        /* Scrollbar */
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+        /* Responsive */
+        @media(max-width:900px){.content-grid{grid-template-columns:1fr!important}.tools-panel{display:none}}
+        @media(max-width:600px){.app-layout{grid-template-columns:1fr!important}.sidebar{display:none}.chat-messages{padding:16px}.msg-body{max-width:85%!important}}
+        @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+    </style>
+</head>
+<body>
+
+<div class="bg-glow bg-glow-1"></div>
+<div class="bg-glow bg-glow-2"></div>
+<div class="toast-container" id="toasts"></div>
+
+<div class="app-layout">
+    <!-- SIDEBAR -->
+    <nav class="sidebar" aria-label="Main navigation">
+        <button class="sidebar-btn active" onclick="switchView('chat')" title="Chat" aria-label="Chat"><i class="fas fa-comments"></i></button>
+        <button class="sidebar-btn" onclick="switchView('tools')" title="Tools" aria-label="Tools"><i class="fas fa-plug"></i></button>
+        <button class="sidebar-btn" onclick="switchView('json')" title="JSON" aria-label="JSON"><i class="fas fa-code"></i></button>
+        <button class="sidebar-btn" onclick="switchView('errors')" title="Errors" aria-label="Errors"><i class="fas fa-triangle-exclamation"></i></button>
+        <div class="sidebar-spacer"></div>
+        <button class="sidebar-btn" onclick="clearChat()" title="New Chat" aria-label="New Chat"><i class="fas fa-plus"></i></button>
+        <div class="sidebar-avatar" title="Agent">AI</div>
+    </nav>
+
+    <!-- MAIN -->
+    <div class="main-area">
+        <!-- HEADER -->
+        <header class="main-header">
+            <h1><span class="dot"></span> Tool-Calling AI Agent</h1>
+            <div style="display:flex;align-items:center;gap:10px">
+                <span id="apiStatus" style="font-size:10px;padding:3px 10px;border-radius:6px;background:rgba(20,184,166,.1);color:var(--teal);font-weight:600;display:flex;align-items:center;gap:5px"><span style="width:5px;height:5px;border-radius:50%;background:var(--teal)"></span> Online</span>
+                <button onclick="clearChat()" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:5px 10px;border-radius:8px;font-size:11px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all .2s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'"><i class="fas fa-rotate-right" style="margin-right:4px"></i>Reset</button>
+            </div>
+        </header>
+
+        <!-- CONTENT -->
+        <div class="content-grid">
+            <!-- CHAT PANEL -->
+            <div class="chat-panel">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="welcome" id="welcomeScreen">
+                        <div class="welcome-icon"><i class="fas fa-plug"></i></div>
+                        <h2>Tool-Calling AI Agent</h2>
+                        <p>I can call functions, search databases, convert currencies, check weather, calculate math, translate text, and send notifications. Try asking me something!</p>
+                        <div class="welcome-grid">
+                            <div class="welcome-card" onclick="sendPreset('What is the weather in Tokyo and London?')">
+                                <div class="wc-icon" style="color:var(--cyan)"><i class="fas fa-cloud-sun"></i></div>
+                                <div class="wc-title">Weather Check</div>
+                                <div class="wc-desc">Check weather for Tokyo and London</div>
+                            </div>
+                            <div class="welcome-card" onclick="sendPreset('Calculate 25% tip on $120 and convert 500 USD to JPY')">
+                                <div class="wc-icon" style="color:var(--amber)"><i class="fas fa-calculator"></i></div>
+                                <div class="wc-title">Calc + Convert</div>
+                                <div class="wc-desc">Calculate tip and convert currency</div>
+                            </div>
+                            <div class="welcome-card" onclick="sendPreset('Search database for john and send notification to manager')">
+                                <div class="wc-icon" style="color:var(--purple)"><i class="fas fa-database"></i></div>
+                                <div class="wc-title">Search + Notify</div>
+                                <div class="wc-desc">Find user and notify manager</div>
+                            </div>
+                            <div class="welcome-card" onclick="sendPreset('Translate hello to Spanish, French and German')">
+                                <div class="wc-icon" style="color:var(--pink)"><i class="fas fa-language"></i></div>
+                                <div class="wc-title">Translate</div>
+                                <div class="wc-desc">Translate text to multiple languages</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- INPUT -->
+                <div class="chat-input-area">
+                    <div class="input-wrapper">
+                        <textarea class="chat-input" id="chatInput" rows="1" placeholder="Ask me anything... (I can call tools!)" aria-label="Chat input" onkeydown="handleInputKey(event)"></textarea>
+                        <button class="send-btn ready" id="sendBtn" onclick="sendMessage()" aria-label="Send message"><i class="fas fa-arrow-up"></i></button>
+                    </div>
+                    <div class="input-hints">
+                        <span class="hint-chip" onclick="sendPreset('Weather in Paris')">Weather</span>
+                        <span class="hint-chip" onclick="sendPreset('Calculate 18% of 2500')">Calculate</span>
+                        <span class="hint-chip" onclick="sendPreset('Convert 1000 EUR to INR')">Currency</span>
+                        <span class="hint-chip" onclick="sendPreset('Search database for sarah')">Search DB</span>
+                        <span class="hint-chip" onclick="sendPreset('Send alert to team about server downtime')">Notify</span>
+                        <span class="hint-chip" onclick="sendPreset('Translate goodbye to Japanese')">Translate</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOOLS PANEL -->
+            <div class="tools-panel">
+                <div class="tools-panel-header">
+                    <h2><i class="fas fa-terminal" style="color:var(--accent);font-size:12px"></i> Inspector</h2>
+                    <div class="panel-tabs">
+                        <button class="panel-tab active" onclick="switchTab(this,'tabTools')">Tools</button>
+                        <button class="panel-tab" onclick="switchTab(this,'tabJson')">JSON</button>
+                        <button class="panel-tab" onclick="switchTab(this,'tabErrors')">Errors</button>
+                    </div>
+                </div>
+                <div class="panel-content" id="panelContent">
+                    <!-- Tab: Tools -->
+                    <div id="tabTools">
+                        <div class="stats-row" id="statsRow"></div>
+                        <div id="toolRegistry"></div>
+                    </div>
+                    <!-- Tab: JSON -->
+                    <div id="tabJson" style="display:none;height:100%">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                            <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Response JSON</span>
+                            <button onclick="copyJson()" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;font-family:'Space Grotesk',sans-serif;transition:all .2s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'"><i class="fas fa-copy"></i> Copy</button>
+                        </div>
+                        <div id="jsonViewer" class="json-viewer" style="max-height:calc(100vh - 200px)"><span class="jl">// Run a command to see JSON response</span></div>
+                    </div>
+                    <!-- Tab: Errors -->
+                    <div id="tabErrors">
+                        <div id="errorPanel"><span style="font-size:12px;color:var(--muted)">No errors yet.</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ======================================================================
+   TOOL DEFINITIONS — Har tool ka schema, logic, aur error handling
+   ====================================================================== */
+var TOOLS = [
+    {
+        name:'get_weather', description:'Get current weather for a city',
+        icon:'fa-cloud-sun', color:'#22d3ee',
+        parameters:[
+            {name:'city',type:'string',required:true,description:'City name'},
+            {name:'units',type:'string',required:false,description:'celsius or fahrenheit'}
+        ],
+        execute:async function(p){
+            if(!p.city||!p.city.trim()) throw new ToolErr('MISSING_PARAM','"city" is required','get_weather');
+            await delay(350+Math.random()*400);
+            var db={tokyo:{t:22,c:'Partly Cloudy',h:65,w:12},london:{t:14,c:'Overcast',h:82,w:18},'new york':{t:18,c:'Clear Sky',h:55,w:8},paris:{t:16,c:'Light Rain',h:78,w:14},sydney:{t:25,c:'Sunny',h:45,w:10},dubai:{t:38,c:'Hot & Hazy',h:30,w:6},mumbai:{t:32,c:'Humid',h:88,w:9},berlin:{t:12,c:'Cloudy',h:72,w:16},karachi:{t:34,c:'Hot & Dusty',h:55,w:8},delhi:{t:36,c:'Hazy',h:48,w:7},singapore:{t:30,c:'Thunderstorms',h:90,w:5},moscow:{t:5,c:'Snow',h:80,w:22},rome:{t:24,c:'Sunny',h:50,w:11},cairo:{t:36,c:'Clear & Hot',h:20,w:9},toronto:{t:10,c:'Drizzle',h:75,w:20},seoul:{t:17,c:'Partly Cloudy',h:58,w:13},bangkok:{t:33,c:'Tropical Rain',h:85,w:7},istanbul:{t:19,c:'Breezy',h:62,w:19}};
+            var k=p.city.toLowerCase().trim(),d=db[k],est=false;
+            if(!d){d={t:Math.floor(Math.random()*35)+2,c:['Sunny','Cloudy','Rainy','Windy','Clear','Overcast'][Math.floor(Math.random()*6)],h:Math.floor(Math.random()*60)+25,w:Math.floor(Math.random()*25)+3};est=true}
+            var u=(p.units||'celsius').toLowerCase(),temp=u==='fahrenheit'?Math.round(d.t*9/5+32):d.t,ul=u==='fahrenheit'?'\u00B0F':'\u00B0C';
+            return{city:p.city,temperature:temp+ul,condition:d.c,humidity:d.h+'%',wind_speed:d.w+' km/h',data_quality:est?'estimated':'verified',retrieved_at:new Date().toISOString()}
+        }
+    },
+    {
+        name:'calculate', description:'Perform math calculations',
+        icon:'fa-calculator', color:'#fbbf24',
+        parameters:[{name:'expression',type:'string',required:true,description:'Math expression like "15% of 85"'}],
+        execute:async function(p){
+            if(!p.expression||!p.expression.trim()) throw new ToolErr('MISSING_PARAM','"expression" is required','calculate');
+            await delay(150+Math.random()*250);
+            var e=p.expression.toLowerCase(),m=e.match(/(\d+\.?\d*)\s*%\s*(?:of|tip\s+on)\s*\$?\s*(\d+\.?\d*)/);
+            if(m){var pc=parseFloat(m[1]),bs=parseFloat(m[2]),r=(pc/100)*bs;return{expression:p.expression,result:r,formatted:'$'+r.toFixed(2),type:'percentage',breakdown:{percentage:pc,base:bs,result:r}}}
+            try{var s=e.replace(/[^0-9+\-*/.() ]/g,'').trim();if(!s)throw 0;var r=new Function('return '+s)();if(typeof r!=='number'||!isFinite(r))throw 0;return{expression:p.expression,result:r,formatted:String(parseFloat(r.toFixed(6))),type:'arithmetic'}}catch(x){throw new ToolErr('EVAL_ERROR','Cannot evaluate "'+p.expression+'"','calculate')}
+        }
+    },
+    {
+        name:'search_database', description:'Search user database',
+        icon:'fa-database', color:'#a78bfa',
+        parameters:[{name:'query',type:'string',required:true,description:'Search term'},{name:'limit',type:'number',required:false,description:'Max results'}],
+        execute:async function(p){
+            if(!p.query||!p.query.trim()) throw new ToolErr('MISSING_PARAM','"query" is required','search_database');
+            await delay(250+Math.random()*350);
+            var db=[{id:'USR001',name:'John Smith',email:'john@company.com',role:'Manager',status:'active'},{id:'USR002',name:'Sarah Connor',email:'sarah@company.com',role:'Engineer',status:'active'},{id:'USR003',name:'Mike Johnson',email:'mike@external.io',role:'Designer',status:'inactive'},{id:'USR004',name:'Emily Zhang',email:'emily@startup.co',role:'CTO',status:'active'},{id:'USR005',name:'David Brown',email:'david@corp.net',role:'Analyst',status:'active'},{id:'USR006',name:'Lisa Park',email:'lisa@agency.com',role:'Director',status:'on_leave'},{id:'USR007',name:'John Davis',email:'jdavis@firm.org',role:'Developer',status:'active'},{id:'USR008',name:'Anna Williams',email:'anna@design.io',role:'Designer',status:'active'},{id:'USR009',name:'Robert Chen',email:'rchen@tech.co',role:'Architect',status:'active'},{id:'USR010',name:'Maria Garcia',email:'maria@global.com',role:'VP Engineering',status:'active'}];
+            var q=p.query.toLowerCase().trim(),lm=p.limit||5,skip=['user','the','a','an','named','called','employee','person','member','record','for','with'];
+            var terms=q.split(/\s+/).filter(function(t){return skip.indexOf(t)===-1});
+            if(terms.length===0)terms=q.split(/\s+/);
+            var res;
+            if(q==='all'||q==='*'||q==='users'||q==='everyone')res=db.slice();
+            else res=db.filter(function(u){var f=(u.name+' '+u.email+' '+u.id+' '+u.role).toLowerCase();return terms.some(function(t){return f.includes(t)})});
+            if(!res.length)throw new ToolErr('NO_RESULTS','No records found for "'+p.query+'"','search_database');
+            return{query:p.query,terms:terms,total:res.length,results:res.slice(0,lm).map(function(r){return Object.assign({},r,{score:Math.round((.6+Math.random()*.4)*100)/100})})}
+        }
+    },
+    {
+        name:'send_notification', description:'Send notification to recipient',
+        icon:'fa-bell', color:'#14b8a6',
+        parameters:[{name:'recipient',type:'string',required:true,description:'Recipient name or group'},{name:'message',type:'string',required:true,description:'Notification message'},{name:'priority',type:'string',required:false,description:'low/medium/high/critical'}],
+        execute:async function(p){
+            if(!p.recipient||!p.recipient.trim()) throw new ToolErr('MISSING_PARAM','"recipient" is required','send_notification');
+            if(!p.message||!p.message.trim()) throw new ToolErr('MISSING_PARAM','"message" is required','send_notification');
+            await delay(250+Math.random()*300);
+            return{id:'notif_'+Date.now()+'_'+Math.random().toString(36).substr(2,5),recipient:p.recipient,message:p.message,priority:p.priority||'medium',status:'delivered',channel:'in-app',delivered_at:new Date().toISOString()}
+        }
+    },
+    {
+        name:'convert_currency', description:'Convert currency using exchange rates',
+        icon:'fa-money-bill-transfer', color:'#84cc16',
+        parameters:[{name:'amount',type:'number',required:true,description:'Amount'},{name:'from',type:'string',required:true,description:'Source currency (e.g. USD)'},{name:'to',type:'string',required:true,description:'Target currency (e.g. JPY)'}],
+        execute:async function(p){
+            if(p.amount===undefined||p.amount===null||p.amount==='') throw new ToolErr('MISSING_PARAM','"amount" is required','convert_currency');
+            if(isNaN(Number(p.amount))) throw new ToolErr('INVALID_PARAM','"amount" must be a number','convert_currency');
+            if(!p.from) throw new ToolErr('MISSING_PARAM','"from" is required','convert_currency');
+            if(!p.to) throw new ToolErr('MISSING_PARAM','"to" is required','convert_currency');
+            await delay(200+Math.random()*250);
+            var rates={USD:1,EUR:.92,GBP:.79,JPY:149.5,INR:83.2,CAD:1.36,AUD:1.53,CHF:.88,CNY:7.24,KRW:1325,SGD:1.34,THB:35.2,AED:3.67,SAR:3.75,BRL:4.97,MXN:17.15};
+            var fc=p.from.toUpperCase(),tc=p.to.toUpperCase();
+            if(!rates[fc]) throw new ToolErr('BAD_CURRENCY','Unsupported currency: '+p.from+'. Supported: '+Object.keys(rates).join(', '),'convert_currency');
+            if(!rates[tc]) throw new ToolErr('BAD_CURRENCY','Unsupported currency: '+p.to+'. Supported: '+Object.keys(rates).join(', '),'convert_currency');
+            var a=parseFloat(p.amount),conv=a/rates[fc]*rates[tc];
+            return{amount:a,from:fc,to:tc,rate:+(rates[tc]/rates[fc]).toFixed(6),converted:+conv.toFixed(2),formatted:conv.toFixed(2)+' '+tc,source:'Simulated ECB Rates'}
+        }
+    },
+    {
+        name:'translate_text', description:'Translate text to target language(s)',
+        icon:'fa-language', color:'#ec4899',
+        parameters:[{name:'text',type:'string',required:true,description:'Text to translate'},{name:'target_lang',type:'string',required:true,description:'Target language(s)'}],
+        execute:async function(p){
+            if(!p.text||!p.text.trim()) throw new ToolErr('MISSING_PARAM','"text" is required','translate_text');
+            if(!p.target_lang||!p.target_lang.trim()) throw new ToolErr('MISSING_PARAM','"target_lang" is required','translate_text');
+            await delay(250+Math.random()*300);
+            var dict={hello:{spanish:'Hola',french:'Bonjour',german:'Hallo',italian:'Ciao',japanese:'\u3053\u3093\u306B\u3061\u306F',korean:'\uC548\uB155\uD558\uC138\uC694',chinese:'\u4F60\u597D',arabic:'\u0645\u0631\u062D\u0628\u0627',hindi:'\u0928\u092E\u0938\u094D\u0924\u0947',portuguese:'Ol\u00E1',russian:'\u0417\u0434\u0440\u0430\u0432\u0441\u0442\u0432\u0443\u0439\u0442\u0435',turkish:'Merhaba',dutch:'Hallo',thai:'\u0E2A\u0E27\u0E31\u0E2A\u0E14\u0E35'},goodbye:{spanish:'Adi\u00F3s',french:'Au revoir',german:'Auf Wiedersehen',italian:'Arrivederci',japanese:'\u3055\u3088\u3046\u306A\u3089',hindi:'\u0905\u0932\u0935\u093F\u0926\u093E'},'thank you':{spanish:'Gracias',french:'Merci',german:'Danke',italian:'Grazie',japanese:'\u3042\u308A\u304C\u3068\u3046'},'good morning':{spanish:'Buenos d\u00EDas',french:'Bonjour',german:'Guten Morgen',italian:'Buongiorno'},'how are you':{spanish:'\u00BFC\u00F3mo est\u00E1s?',french:'Comment allez-vous?',german:'Wie geht es Ihnen?',italian:'Come stai?'}};
+            var ls=p.target_lang.replace(/\s+and\s+/gi,',').split(',').map(function(l){return l.trim().toLowerCase()}).filter(function(l){return l}),k=p.text.toLowerCase().trim(),b=dict[k]||{},tr={};
+            ls.forEach(function(l){var c=l.charAt(0).toUpperCase()+l.slice(1);tr[c]=b[l]||'['+p.text+'] (simulated to '+c+')'});
+            if(!Object.keys(tr).length) throw new ToolErr('TRANSLATE_FAIL','Cannot translate "'+p.text+'" to "'+p.target_lang+'"','translate_text');
+            return{original:p.text,translations:tr,source_lang:'English',confidence:k in dict?.95:.6}
+        }
+    }
+];
+
+/* ===== ERROR CLASS ===== */
+class ToolErr extends Error{
+    constructor(code,msg,tool,details){
+        super(msg);this.code=code;this.toolName=tool;this.details=details||null;this.timestamp=new Date().toISOString()
+    }
+    toJSON(){return{error:true,code:this.code,message:this.message,tool:this.toolName,suggestions:this.getSuggestions()}}
+    getSuggestions(){var s={MISSING_PARAM:['Check required parameters'],EVAL_ERROR:['Simplify expression','Use format "15% of 100"'],NO_RESULTS:['Try different search term','Use partial name like "john"'],BAD_CURRENCY:['Use 3-letter codes: USD, EUR, JPY, INR'],TRANSLATE_FAIL:['Try common phrases','Check language spelling'],EXEC_ERR:['Try again with different parameters']};return s[this.code]||['Try again or use different parameters']}
+}
+
+/* ===== EXECUTOR ===== */
+var stats={total:0,success:0,errors:0,history:[]};
+var lastJson=null;
+
+async function execTool(name,params){
+    var tool=TOOLS.find(function(t){return t.name===name});
+    if(!tool){stats.errors++;return{ok:false,err:new ToolErr('NOT_FOUND','Tool "'+name+'" not found',name).toJSON()}}
+    /* Validate required */
+    var missing=tool.parameters.filter(function(p){return p.required&&(!params[p.name]||params[p.name]==='')});
+    if(missing.length){var e=new ToolErr('MISSING_PARAM','Missing: '+missing.map(function(p){return '"'+p.name+'"'}).join(', '),name);stats.errors++;return{ok:false,err:e.toJSON()}}
+    var start=Date.now();
+    try{var r=await tool.execute(params);stats.success++;var d=Date.now()-start;stats.history.push({tool:name,status:'success',duration:d});return{ok:true,data:r,duration:d}}
+    catch(e){stats.errors++;var d=Date.now()-start;if(e instanceof ToolErr){stats.history.push({tool:name,status:'error',duration:d});return{ok:false,err:e.toJSON()}}var w=new ToolErr('EXEC_ERR',e.message,name);stats.history.push({tool:name,status:'error',duration:d});return{ok:false,err:w.toJSON()}}
+}
+
+/* ===== COMMAND PARSER ===== */
+function parseCmd(cmd){
+    var c=cmd.toLowerCase(),calls=[];
+    if(c.match(/weather|temperature|forecast/)){var m=c.match(/(?:weather|temperature|forecast)\s+(?:for|in|at)\s+(.+?)(?:\s+and\s+|\s*,\s*|\s+then\s+|$)/);var city=m?m[1].trim():'London';city=city.replace(/\b\w/g,function(l){return l.toUpperCase()});calls.push({tool:'get_weather',params:{city:city}})}
+    if(c.match(/calculate|compute|%\s*(?:of|tip)|math/)){var m=c.match(/(\d+\.?\d*)\s*%\s*(?:tip\s+on|of)\s*\$?\s*(\d+\.?\d*)/);if(m)calls.push({tool:'calculate',params:{expression:m[1]+'% of '+m[2]}});else{var m2=c.match(/(?:calculate|compute|what is)\s+(.+?)(?:\s+and\s+|\s*,\s*|\s+then\s+|$)/);if(m2&&m2[1].trim())calls.push({tool:'calculate',params:{expression:m2[1].trim()}})}}
+    if(c.match(/convert|currency|exchange/)){var am=c.match(/(\d+\.?\d*)/),fm=c.match(/(usd|eur|gbp|jpy|inr|cad|aud|chf|cny|krw|sgd|thb|aed|sar|brl|mxn)/i),tm=c.match(/to\s+(usd|eur|gbp|jpy|inr|cad|aud|chf|cny|krw|sgd|thb|aed|sar|brl|mxn)/i);if(am&&tm)calls.push({tool:'convert_currency',params:{amount:parseFloat(am[1]),from:fm?fm[1].toUpperCase():'USD',to:tm[1].toUpperCase()}})}
+    if(c.match(/search|lookup|find|database/)){var m=c.match(/(?:search|lookup|find)\s+(?:the\s+)?(?:database\s+)?(?:for\s+)?(.+?)(?:\s+and\s+|\s*,\s*|\s+then\s+|$)/);if(m&&m[1].trim()){var q=m[1].trim().replace(/^(user\s+|employee\s+|person\s+)+/i,'').trim()||m[1].trim();calls.push({tool:'search_database',params:{query:q}})}}
+    if(c.match(/notify|notification|send\s+(?:a\s+)?(?:notification|alert|message)|alert/)){var rm=c.match(/(?:to|notify|alert)\s+(?:the\s+)?(.+?)(?:\s+about\s+|\s+and\s+|\s*,\s*|\s+then\s+|$)/),mm=c.match(/about\s+(.+?)$/),rec=rm?rm[1].trim():'team';rec=rec.replace(/\s+(the|a|an|about|that|this)\s*$/i,'').trim()||'team';calls.push({tool:'send_notification',params:{recipient:rec,message:mm?mm[1].trim():'Notification from AI Agent',priority:c.match(/urgent|critical/)?'high':'medium'}})}
+    if(c.match(/translate|translation/)){var tm2=c.match(/to\s+(.+?)$/),txm=c.match(/translate\s+(.+?)\s+to\s+/);if(txm&&tm2)calls.push({tool:'translate_text',params:{text:txm[1].trim(),target_lang:tm2[1].trim()}});else if(tm2)calls.push({tool:'translate_text',params:{text:'hello',target_lang:tm2[1].trim()}})}
+    if(c.match(/report|summary|generate/)&&!calls.some(function(t){return t.tool==='search_database'}))calls.push({tool:'search_database',params:{query:'all'}});
+    if(!calls.length){var sp=c.replace(/[^0-9+\-*/.() ]/g,'').trim();calls.push(sp?{tool:'calculate',params:{expression:sp}}:{tool:'search_database',params:{query:cmd.trim()}})}
+    return calls
+}
+
+/* ===== CHAT ENGINE ===== */
+var isProcessing=false;
+
+async function sendMessage(){
+    var input=document.getElementById('chatInput'),txt=input.value.trim();
+    if(!txt||isProcessing)return;
+    isProcessing=true;input.value='';autoResize();
+    document.getElementById('sendBtn').className='send-btn disabled';
+
+    /* Hide welcome */
+    var w=document.getElementById('welcomeScreen');if(w)w.remove();
+
+    /* Add user message */
+    addMsg('user',txt);
+
+    /* Show typing */
+    var typingEl=addTyping();
+
+    /* Parse & execute */
+    var calls=parseCmd(txt);
+    await delay(600+Math.random()*400);
+    typingEl.remove();
+
+    /* AI thinking message */
+    var thinkEl=addMsg('ai','<span style="color:var(--amber)"><i class="fas fa-cog fa-spin" style="margin-right:6px"></i>Analyzing your request and calling ' + calls.length + ' tool' + (calls.length>1?'s':'') + '...</span>',true);
+
+    await delay(400);
+
+    /* Execute tools */
+    var results=[],errors=[];
+    for(var i=0;i<calls.length;i++){
+        var tc=calls[i];
+        stats.total++;
+        var r=await execTool(tc.tool,tc.params);
+        if(r.ok){results.push({tool:tc.tool,params:tc.params,data:r.data,duration:r.duration})}
+        else{errors.push(r.err);results.push({tool:tc.tool,params:tc.params,error:r.err})}
+        renderStats();renderToolRegistry();
+    }
+
+    /* Remove thinking message */
+    thinkEl.remove();
+
+    /* Build tool call cards */
+    var toolCardsHtml='';
+    for(var i=0;i<results.length;i++){
+        var r=results[i],tool=TOOLS.find(function(t){return t.name===r.tool});
+        if(r.error){
+            toolCardsHtml+='<div class="tool-call-card"><div class="tool-call-header"><div class="tc-icon" style="background:rgba(244,63,94,.1);color:var(--rose)"><i class="fas fa-circle-xmark"></i></div><span class="tc-name" style="color:var(--rose)">'+r.tool+'</span><span class="tc-status" style="background:rgba(244,63,94,.1);color:var(--rose)">Error</span></div><div class="tc-args">Args: '+JSON.stringify(r.params)+'</div><div class="tc-error">['+r.error.code+'] '+r.error.message+'</div></div>';
+        }else{
+            var isEst=r.data&&r.data.data_quality==='estimated';
+            toolCardsHtml+='<div class="tool-call-card"><div class="tool-call-header"><div class="tc-icon" style="background:'+tool.color+'18;color:'+tool.color+'"><i class="fas '+tool.icon+'"></i></div><span class="tc-name">'+r.tool+(isEst?' <span style="font-size:9px;color:var(--amber)">(estimated)</span>':'')+'</span><span class="tc-status" style="background:rgba(20,184,166,.1);color:var(--teal)">'+r.duration+'ms</span></div><div class="tc-args">Args: '+JSON.stringify(r.params)+'</div><div class="tc-result">'+JSON.stringify(r.data,null,2)+'</div></div>';
+        }
+    }
+
+    /* Generate summary text */
+    var summaryParts=[];
+    for(var i=0;i<results.length;i++){
+        var r=results[i];
+        if(!r.error){
+            var d=r.data;
+            if(r.tool==='get_weather')summaryParts.push('**'+d.city+'**: '+d.temperature+', '+d.condition+(d.data_quality==='estimated'?' (estimated)':''));
+            else if(r.tool==='calculate')summaryParts.push('**'+r.params.expression+'** = '+(d.formatted||d.result));
+            else if(r.tool==='convert_currency')summaryParts.push('**'+d.amount+' '+d.from+'** = '+d.formatted);
+            else if(r.tool==='search_database')summaryParts.push('Found **'+d.total+'** record'+(d.total>1?'s':'')+' for "'+d.query+'"');
+            else if(r.tool==='send_notification')summaryParts.push('Notification sent to **'+d.recipient+'** ('+d.priority+')');
+            else if(r.tool==='translate_text'){var langs=Object.keys(d.translations).map(function(l){return l+': '+d.translations[l]});summaryParts.push('**"'+d.original+'"** \u2192 '+langs.join(', '))}
+        }
+    }
+
+    var errParts=errors.map(function(e){return '['+e.code+'] '+e.message});
+    var finalText=summaryParts.length?'Here are the results:\n\n'+summaryParts.join('\n\n')+(errParts.length?'\n\n<span style="color:var(--rose)"><i class="fas fa-triangle-exclamation" style="margin-right:4px"></i>Errors: '+errParts.join('; ')+'</span>':''):'<span style="color:var(--rose)"><i class="fas fa-triangle-exclamation" style="margin-right:4px"></i>All tool calls failed: '+errParts.join('; ')+'</span>';
+
+    /* Add AI message with tool cards */
+    addMsg('ai',finalText,false,toolCardsHtml);
+
+    /* Update JSON panel */
+    var jsonResponse={agent:'Tool-Calling AI Agent',version:'1.0.0',request:{command:txt,timestamp:new Date().toISOString(),id:'req_'+Date.now()},results:results.map(function(r){var e={tool:r.tool};if(r.error){e.status='error';e.error=r.error}else{e.status='success';e.data=r.data;e.duration_ms=r.duration}return e}),summary:{total:results.length,successful:results.filter(function(r){return!r.error}).length,failed:errors.length,tools_used:Array.from(new Set(results.map(function(r){return r.tool})))}};
+    if(errors.length)jsonResponse.errors=errors;
+    lastJson=jsonResponse;
+    renderJson(jsonResponse);
+
+    /* Update errors panel */
+    if(errors.length)renderErrors(errors);
+
+    isProcessing=false;
+    document.getElementById('sendBtn').className='send-btn ready';
+}
+
+/* ===== UI HELPERS ===== */
+function addMsg(type,content,isRaw,extraHtml){
+    var box=document.getElementById('chatMessages');
+    var div=document.createElement('div');
+    div.className='msg '+(type==='user'?'user':'ai');
+    var now=new Date();
+    var time=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+    var avatar=type==='user'?'<i class="fas fa-user"></i>':'<i class="fas fa-robot"></i>';
+    var bubbleContent=isRaw?content:formatText(content);
+    div.innerHTML='<div class="msg-avatar">'+avatar+'</div><div class="msg-body"><div class="msg-bubble">'+bubbleContent+'</div>'+(extraHtml||'')+'<div class="msg-time">'+time+'</div></div>';
+    box.appendChild(div);
+    box.scrollTop=box.scrollHeight;
+    return div;
+}
+
+function addTyping(){
+    var box=document.getElementById('chatMessages');
+    var div=document.createElement('div');
+    div.className='msg ai';
+    div.id='typingIndicator';
+    div.innerHTML='<div class="msg-avatar"><i class="fas fa-robot"></i></div><div class="msg-body"><div class="msg-bubble"><div class="typing-indicator"><span></span><span></span><span></span></div></div></div>';
+    box.appendChild(div);
+    box.scrollTop=box.scrollHeight;
+    return div;
+}
+
+function formatText(t){
+    /* Bold **text** */
+    t=t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    /* Line breaks */
+    t=t.replace(/\n/g,'<br>');
+    return t;
+}
+
+function delay(ms){return new Promise(function(r){setTimeout(r,ms)})}
+
+function handleInputKey(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}
+    autoResize();
+}
+function autoResize(){
+    var el=document.getElementById('chatInput');
+    el.style.height='auto';
+    el.style.height=Math.min(el.scrollHeight,120)+'px';
+}
+document.getElementById('chatInput').addEventListener('input',autoResize);
+
+function sendPreset(txt){
+    document.getElementById('chatInput').value=txt;
+    sendMessage();
+}
+
+function clearChat(){
+    var box=document.getElementById('chatMessages');
+    box.innerHTML='<div class="welcome" id="welcomeScreen"><div class="welcome-icon"><i class="fas fa-plug"></i></div><h2>Tool-Calling AI Agent</h2><p>I can call functions, search databases, convert currencies, check weather, calculate math, translate text, and send notifications. Try asking me something!</p><div class="welcome-grid"><div class="welcome-card" onclick="sendPreset(\'What is the weather in Tokyo and London?\')"><div class="wc-icon" style="color:var(--cyan)"><i class="fas fa-cloud-sun"></i></div><div class="wc-title">Weather Check</div><div class="wc-desc">Check weather for Tokyo and London</div></div><div class="welcome-card" onclick="sendPreset(\'Calculate 25% tip on $120 and convert 500 USD to JPY\')"><div class="wc-icon" style="color:var(--amber)"><i class="fas fa-calculator"></i></div><div class="wc-title">Calc + Convert</div><div class="wc-desc">Calculate tip and convert currency</div></div><div class="welcome-card" onclick="sendPreset(\'Search database for john and send notification to manager\')"><div class="wc-icon" style="color:var(--purple)"><i class="fas fa-database"></i></div><div class="wc-title">Search + Notify</div><div class="wc-desc">Find user and notify manager</div></div><div class="welcome-card" onclick="sendPreset(\'Translate hello to Spanish, French and German\')"><div class="wc-icon" style="color:var(--pink)"><i class="fas fa-language"></i></div><div class="wc-title">Translate</div><div class="wc-desc">Translate text to multiple languages</div></div></div></div>';
+    stats={total:0,success:0,errors:0,history:[]};lastJson=null;
+    renderStats();renderToolRegistry();renderJson({});renderErrors([]);
+    toast('Chat cleared','var(--accent)');
+}
+
+/* ===== PANELS ===== */
+function switchView(v){
+    document.querySelectorAll('.sidebar-btn').forEach(function(b){b.classList.remove('active')});
+    event.currentTarget.classList.add('active');
+    var tabMap={chat:'tabTools',tools:'tabTools',json:'tabJson',errors:'tabErrors'};
+    showTab(tabMap[v]||'tabTools');
+}
+
+function switchTab(btn,tabId){
+    btn.parentElement.querySelectorAll('.panel-tab').forEach(function(t){t.classList.remove('active')});
+    btn.classList.add('active');
+    showTab(tabId);
+}
+
+function showTab(tabId){
+    ['tabTools','tabJson','tabErrors'].forEach(function(id){
+        document.getElementById(id).style.display=id===tabId?'':'none';
+    });
+}
+
+function renderStats(){
+    var el=document.getElementById('statsRow');
+    var avg=stats.history.length?Math.round(stats.history.reduce(function(s,h){return s+h.duration},0)/stats.history.length)+'ms':'--';
+    el.innerHTML='<div class="stat-card"><div class="stat-label"><i class="fas fa-plug" style="color:var(--accent)"></i> Calls</div><div class="stat-value" style="color:var(--accent)">'+stats.total+'</div></div><div class="stat-card"><div class="stat-label"><i class="fas fa-circle-check" style="color:var(--teal)"></i> OK</div><div class="stat-value" style="color:var(--teal)">'+stats.success+'</div></div><div class="stat-card"><div class="stat-label"><i class="fas fa-triangle-exclamation" style="color:var(--rose)"></i> Err</div><div class="stat-value" style="color:var(--rose)">'+stats.errors+'</div></div><div class="stat-card"><div class="stat-label"><i class="fas fa-stopwatch" style="color:var(--purple)"></i> Avg</div><div class="stat-value" style="color:var(--purple)">'+avg+'</div></div>';
+}
+
+function renderToolRegistry(){
+    var el=document.getElementById('toolRegistry');
+    el.innerHTML=TOOLS.map(function(t){
+        var last=stats.history.filter(function(h){return h.tool===t.name}).slice(-1)[0];
+        var badge=last?(last.status==='success'?'<span class="tool-reg-badge" style="background:rgba(20,184,166,.1);color:var(--teal)">OK</span>':'<span class="tool-reg-badge" style="background:rgba(244,63,94,.1);color:var(--rose)">Err</span>'):'<span class="tool-reg-badge" style="background:rgba(90,115,153,.1);color:var(--muted)">Idle</span>';
+        return '<div class="tool-reg-card"><div class="tool-reg-top"><div class="tool-reg-icon" style="background:'+t.color+'18;color:'+t.color+'"><i class="fas '+t.icon+'"></i></div><div class="tool-reg-info"><div class="tool-reg-name">'+t.name+'</div><div class="tool-reg-desc">'+t.description+'</div></div>'+badge+'</div><div class="tool-reg-params">'+t.parameters.map(function(p){return '<span style="background:'+(p.required?'rgba(244,63,94,.08)':'rgba(90,115,153,.08)')+';color:'+(p.required?'var(--rose)':'var(--muted)')+'">'+p.name+(p.required?'*':'')+'</span>'}).join('')+'</div></div>';
+    }).join('');
+}
+
+function renderJson(data){
+    var el=document.getElementById('jsonViewer');
+    if(!data||!Object.keys(data).length){el.innerHTML='<span class="jl">// Run a command to see JSON response</span>';return}
+    var s=JSON.stringify(data,null,2);
+    el.innerHTML=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g,function(m){return /:$/.test(m)?'<span class="jk">'+m+'</span>':'<span class="js">'+m+'</span>'}).replace(/\b(true|false)\b/g,'<span class="jb">$&</span>').replace(/\b(null)\b/g,'<span class="jl">$&</span>').replace(/\b(-?\d+\.?\d*([eE][+-]?\d+)?)\b/g,'<span class="jn">$&</span>').replace(/"error":\s*true/g,'<span class="je">"error": true</span>').replace(/"status":\s*"error"/g,'<span class="je">"status": "error"</span>');
+}
+
+function renderErrors(errors){
+    var el=document.getElementById('errorPanel');
+    if(!errors||!errors.length){el.innerHTML='<span style="font-size:12px;color:var(--muted)">No errors yet.</span>';return}
+    el.innerHTML=errors.map(function(e){
+        return '<div class="error-display"><div class="ed-code"><i class="fas fa-triangle-exclamation"></i> '+e.code+' <span style="font-weight:400;color:var(--muted);font-size:10px">in '+e.tool+'</span></div><div class="ed-msg">'+e.message+'</div>'+(e.suggestions?'<div class="ed-suggest">'+e.suggestions.map(function(s){return '<div>'+s+'</div>'}).join('')+'</div>':'')+'</div>';
+    }).join('');
+}
+
+function copyJson(){
+    if(!lastJson){toast('No JSON to copy','var(--rose)');return}
+    navigator.clipboard.writeText(JSON.stringify(lastJson,null,2)).then(function(){toast('JSON copied!','var(--teal)')}).catch(function(){toast('Copy failed','var(--rose)')});
+}
+
+function toast(msg,color){
+    var box=document.getElementById('toasts');
+    var t=document.createElement('div');
+    t.className='toast';
+    t.innerHTML='<div style="width:6px;height:6px;border-radius:50%;background:'+color+';flex-shrink:0"></div>'+msg;
+    box.appendChild(t);
+    setTimeout(function(){t.classList.add('out');setTimeout(function(){t.remove()},300)},3000);
+}
+
+/* ===== INIT ===== */
+window.addEventListener('load',function(){renderStats();renderToolRegistry();renderJson({});renderErrors([])});
+</script>
+</body>
+</html>
